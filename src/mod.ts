@@ -105,7 +105,7 @@ class Mod implements IPostAkiLoadMod, IPostDBLoadMod, IPreAkiLoadMod {
                 }
 
                 //this sets labs key uses to infinite, but they still are consumed when leaving labs so the affect is only cosmetic
-                if (config.no_key_use_limit){
+                if (config.no_key_use_limit && !config.finiteKeysList.includes(dbItems[it]._id)){
                     itemProps.MaximumNumberOfUsage = 0;
                 }
                 
