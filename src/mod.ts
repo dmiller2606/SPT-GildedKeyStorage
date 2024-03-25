@@ -1,28 +1,38 @@
 /* eslint-disable @typescript-eslint/naming-convention */
 /* eslint-disable @typescript-eslint/brace-style */
-import { DependencyContainer } from "tsyringe";
-import {StaticRouterModService} from "@spt-aki/services/mod/staticRouter/StaticRouterModService";
-import {SaveServer} from "@spt-aki/servers/SaveServer";
-import { IPostAkiLoadMod } from "@spt-aki/models/external/IPostAkiLoadMod";
-import { IPostDBLoadMod } from "@spt-aki/models/external/IPostDBLoadMod";
-import { IPreAkiLoadMod } from "@spt-aki/models/external/IPreAkiLoadMod";
-import { HashUtil } from "@spt-aki/utils/HashUtil";
-import { JsonUtil } from "@spt-aki/utils/JsonUtil";
-import { DatabaseServer } from "@spt-aki/servers/DatabaseServer";
-import { ILogger } from "@spt-aki/models/spt/utils/ILogger";
+import type { DependencyContainer } from "tsyringe";
+import type { ProfileHelper } from "@spt-aki/helpers/ProfileHelper";
+import type { StaticRouterModService } from "@spt-aki/services/mod/staticRouter/StaticRouterModService";
+import type { SaveServer } from "@spt-aki/servers/SaveServer";
+import type { IPostAkiLoadMod } from "@spt-aki/models/external/IPostAkiLoadMod";
+import type { IPostDBLoadMod } from "@spt-aki/models/external/IPostDBLoadMod";
+import type { IPreAkiLoadMod } from "@spt-aki/models/external/IPreAkiLoadMod";
+import type { HashUtil } from "@spt-aki/utils/HashUtil";
+import type { JsonUtil } from "@spt-aki/utils/JsonUtil";
+import type { DatabaseServer } from "@spt-aki/servers/DatabaseServer";
+import type { ILogger } from "@spt-aki/models/spt/utils/ILogger";
 import { BaseClasses } from "@spt-aki/models/enums/BaseClasses";
 import { LogTextColor } from "@spt-aki/models/spt/logging/LogTextColor";
 //import { LogBackgroundColor } from "@spt-aki/models/spt/logging/LogBackgroundColor";
 import { Debug } from "./debug";
 
 import * as config from "../config/config.json";
-import { ITrader } from "@spt-aki/models/eft/common/tables/ITrader";
+import type { ITrader } from "@spt-aki/models/eft/common/tables/ITrader";
 
 class Mod implements IPostAkiLoadMod, IPostDBLoadMod, IPreAkiLoadMod {
+    caseConfigNames = [
+        "Golden Key Pouch",
+        "Golden Keychain Mk. I",
+        "Golden Keychain Mk. II",
+        "Golden Keychain Mk. III",
+        "Golden Keycard Case"
+    ];
+
     logger: ILogger
     modName: string
     modVersion: string
     container: DependencyContainer;
+    profileHelper: ProfileHelper;
 
     constructor() {
         this.modName = "Gilded Key Storage";
@@ -37,8 +47,22 @@ class Mod implements IPostAkiLoadMod, IPostDBLoadMod, IPreAkiLoadMod {
         const staticRouterModService = container.resolve<StaticRouterModService>("StaticRouterModService")
         const saveServer = container.resolve<SaveServer>("SaveServer")
         const logger = container.resolve<ILogger>("WinstonLogger")
-        const debugUtil = new Debug()
+        this.profileHelper = container.resolve<ProfileHelper>("ProfileHelper");
 
+        // On game start, see if we need to move any keys to the correct slot (Handles updating keys between Tarkov versions)
+        staticRouterModService.registerStaticRouter(
+            "On_Game_Start_Gilded_Key_Storage", [{
+                url: "/client/game/start",
+                action: (url, info, sessionId, output) => {
+                    this.fixProfile(sessionId);
+                    return output
+                }
+            }],
+            "aki"
+        );
+
+        // Setup debugging if enabled
+        const debugUtil = new Debug()
         debugUtil.giveProfileAllKeysAndGildedCases(staticRouterModService, saveServer, logger)
         debugUtil.removeAllDebugInstanceIdsFromProfile(staticRouterModService, saveServer)
     }
@@ -54,16 +78,14 @@ class Mod implements IPostAkiLoadMod, IPostDBLoadMod, IPreAkiLoadMod {
         const dbTemplates = dbTables.templates
         const dbTraders = dbTables.traders
         const dbItems = dbTemplates.items
-        const dbLocales = dbTables.locales.global["en"]
+        const dbLocales = dbTables.locales.global.en
 
-        
         this.combatibilityThings(dbItems)
 
-        this.createCase(container, config["Golden Key Pouch"], dbTables, jsonUtil);
-        this.createCase(container, config["Golden Keychain Mk. I"], dbTables, jsonUtil);
-        this.createCase(container, config["Golden Keychain Mk. II"], dbTables, jsonUtil);
-        this.createCase(container, config["Golden Keychain Mk. III"], dbTables, jsonUtil);
-        this.createCase(container, config["Golden Keycard Case"], dbTables, jsonUtil);
+        for (const configName of this.caseConfigNames)
+        {
+            this.createCase(container, config[configName], dbTables, jsonUtil);
+        }
 
         this.pushSupportiveBarters(dbTraders)
         this.makeKeysWeightlessCommaDiscardableAndHaveNoUseLimit(dbItems)
@@ -79,6 +101,7 @@ class Mod implements IPostAkiLoadMod, IPostDBLoadMod, IPreAkiLoadMod {
         }
     }
 
+    // biome-ignore lint/suspicious/noExplicitAny: <explanation>
     setLabsCardInRaidLimit(restrInRaid:any, limitAmount:number):void{
         if (restrInRaid === undefined) return
 
@@ -119,7 +142,7 @@ class Mod implements IPostAkiLoadMod, IPostDBLoadMod, IPreAkiLoadMod {
     combatibilityThings(dbItems):void{
         //do a compatibility correction to make this mod work with other mods with destructive code (cough, SVM, cough)
         //basically just add the filters element back to backpacks and secure containers if they've been removed by other mods
-        const compatFiltersElement = [{ "Filter": [BaseClasses.ITEM], "ExcludedFilter": [""] }];
+        const compatFiltersElement = [{ Filter: [BaseClasses.ITEM], ExcludedFilter: [""] }];
 
         for (const i in dbItems){
             if (
@@ -139,7 +162,8 @@ class Mod implements IPostAkiLoadMod, IPostDBLoadMod, IPreAkiLoadMod {
         const locales = Object.values(tables.locales.global) as Record<string, string>[];
         const itemID = config.id
         const itemPrefabPath = `CaseBundles/${itemID}.bundle`
-        let item;
+        // biome-ignore lint/suspicious/noExplicitAny: <explanation>
+        let item: any;
 
         //clone a case
         if (config.case_type === "container"){
@@ -187,9 +211,9 @@ class Mod implements IPostAkiLoadMod, IPostDBLoadMod, IPreAkiLoadMod {
 
         handbook.Items.push(
             {
-                "Id": itemID,
-                "ParentId": "5b5f6fa186f77409407a7eb7",
-                "Price": price
+                Id: itemID,
+                ParentId: "5b5f6fa186f77409407a7eb7",
+                Price: price
             }
         );
 
@@ -211,13 +235,13 @@ class Mod implements IPostAkiLoadMod, IPostDBLoadMod, IPreAkiLoadMod {
 
     pushToTrader(config, itemID:string, dbTraders: Record<string, ITrader>){
         const traderIDs = {
-            "mechanic": "5a7c2eca46aef81a7ca2145d",
-            "skier": "58330581ace78e27b8b10cee",
-            "peacekeeper": "5935c25fb3acc3127c3d8cd9",
-            "therapist": "54cb57776803fa99248b456e",
-            "prapor": "54cb50c76803fa8b248b4571",
-            "jaeger": "5c0647fdd443bc2504c2d371",
-            "ragman": "5ac3b934156ae10c4430e83c"
+            mechanic: "5a7c2eca46aef81a7ca2145d",
+            skier: "58330581ace78e27b8b10cee",
+            peacekeeper: "5935c25fb3acc3127c3d8cd9",
+            therapist: "54cb57776803fa99248b456e",
+            prapor: "54cb50c76803fa8b248b4571",
+            jaeger: "5c0647fdd443bc2504c2d371",
+            ragman: "5ac3b934156ae10c4430e83c"
         };
 
         /*
@@ -230,25 +254,27 @@ class Mod implements IPostAkiLoadMod, IPostDBLoadMod, IPreAkiLoadMod {
 
         //add to config trader's inventory
         let traderToPush = config.trader;
-        Object.entries(traderIDs).forEach(([key, val]) => {
+        for (const [key, val] of Object.entries(traderIDs))
+        {
             if (key === config.trader){
                 traderToPush = val;
             }
-        })
+        }
         const trader = dbTraders[traderToPush];
 
         trader.assort.items.push({
-            "_id": itemID,
-            "_tpl": itemID,
-            "parentId": "hideout",
-            "slotId": "hideout",
-            "upd":
+            _id: itemID,
+            _tpl: itemID,
+            parentId: "hideout",
+            slotId: "hideout",
+            upd:
             {
-                "UnlimitedCount": config.unlimited_stock,
-                "StackObjectsCount": config.stock_amount
+                UnlimitedCount: config.unlimited_stock,
+                StackObjectsCount: config.stock_amount
             }
         });
 
+        // biome-ignore lint/suspicious/noExplicitAny: <explanation>
         const barterTrade: any = [];
         const configBarters = config.barter;
 
@@ -297,7 +323,7 @@ class Mod implements IPostAkiLoadMod, IPostDBLoadMod, IPreAkiLoadMod {
             for (const gridKey in currentItem._props.Grids){
                 if (currentItem._parent === caseParent && currentItem._id !== "5c0a794586f77461c458f892"){
                     if (currentItem._props.Grids[0]._props.filters[0].ExcludedFilter === undefined){
-                        currentItem._props.Grids[0]._props.filters[0]["ExcludedFilter"] = [customItemID];
+                        currentItem._props.Grids[0]._props.filters[0].ExcludedFilter = [customItemID];
                     } else {                 
                         currentItem._props.Grids[gridKey]._props.filters[0].ExcludedFilter.push(customItemID)
 
@@ -310,7 +336,7 @@ class Mod implements IPostAkiLoadMod, IPostDBLoadMod, IPreAkiLoadMod {
         if (includeOrExclude === "include"){
             if (currentItem._parent === caseParent && currentItem._id !== "5c0a794586f77461c458f892"){
                 if (currentItem._props.Grids[0]._props.filters[0].Filter === undefined){
-                    currentItem._props.Grids[0]._props.filters[0]["Filter"] = [customItemID];
+                    currentItem._props.Grids[0]._props.filters[0].Filter = [customItemID];
                 } else {
                     currentItem._props.Grids[0]._props.filters[0].Filter.push(customItemID)
                 }
@@ -323,7 +349,7 @@ class Mod implements IPostAkiLoadMod, IPostDBLoadMod, IPreAkiLoadMod {
         //exclude custom case in specific item of caseToApplyTo id
         if (includeOrExclude === "exclude"){
             if (currentItem._props.Grids[0]._props.filters[0].ExcludedFilter === undefined){
-                currentItem._props.Grids[0]._props.filters[0]["ExcludedFilter"] = [customItemID];
+                currentItem._props.Grids[0]._props.filters[0].ExcludedFilter = [customItemID];
             } else {
                 currentItem._props.Grids[0]._props.filters[0].ExcludedFilter.push(customItemID)
             }
@@ -332,7 +358,7 @@ class Mod implements IPostAkiLoadMod, IPostDBLoadMod, IPreAkiLoadMod {
         //include custom case in specific item of caseToApplyTo id
         if (includeOrExclude === "include"){
             if (currentItem._props.Grids[0]._props.filters[0].Filter === undefined){
-                currentItem._props.Grids[0]._props.filters[0]["Filter"] = [customItemID];
+                currentItem._props.Grids[0]._props.filters[0].Filter = [customItemID];
             } else {
                 currentItem._props.Grids[0]._props.filters[0].Filter.push(customItemID)
             }
@@ -341,8 +367,8 @@ class Mod implements IPostAkiLoadMod, IPostDBLoadMod, IPreAkiLoadMod {
 
     createGrid(container, itemID, config) {
         const grids = [];
-        let cellHeight = config.InternalSize["vertical_cells"];
-        let cellWidth = config.InternalSize["horizontal_cells"];
+        let cellHeight = config.InternalSize.vertical_cells;
+        let cellWidth = config.InternalSize.horizontal_cells;
         const inFilt = config.included_filter;
         const exFilt = config.excluded_filter;
         const UCcellToApply = config.cell_to_apply_filters_to;
@@ -368,9 +394,9 @@ class Mod implements IPostAkiLoadMod, IPostDBLoadMod, IPreAkiLoadMod {
 
         for (let i = 0; i < cellWidth.length; i++) {
             if ((i === UCcellToApply-1) || (UCcellToApply[i] === ("y" || "Y"))){
-                grids.push(this.generateGridColumn(container, itemID, "column"+i, cellWidth[i], cellHeight[i], UCinFilt, UCexFilt));
+                grids.push(this.generateGridColumn(container, itemID, `column${i}`, cellWidth[i], cellHeight[i], UCinFilt, UCexFilt));
             } else {
-                grids.push(this.generateGridColumn(container, itemID, "column"+i, cellWidth[i], cellHeight[i], inFilt, exFilt));
+                grids.push(this.generateGridColumn(container, itemID, `column${i}`, cellWidth[i], cellHeight[i], inFilt, exFilt));
             }
         }
         return grids;
@@ -381,7 +407,7 @@ class Mod implements IPostAkiLoadMod, IPostDBLoadMod, IPreAkiLoadMod {
         const configSlots = config.slot_ids;
 
         for (let i = 0; i < configSlots.length; i++){
-            slots.push(this.generateSlotColumn(container, itemID, "mod_mount_"+i, configSlots[i]));
+            slots.push(this.generateSlotColumn(container, itemID, `mod_mount_${i}`, configSlots[i]));
         }
         return slots;
     }
@@ -389,22 +415,22 @@ class Mod implements IPostAkiLoadMod, IPostDBLoadMod, IPreAkiLoadMod {
     generateGridColumn(container: DependencyContainer, itemID, name, cellH, cellV, inFilt, exFilt) {
         const hashUtil = container.resolve<HashUtil>("HashUtil")
         return {
-            "_name": name,
-            "_id": hashUtil.generate(),
-            "_parent": itemID,
-            "_props": {
-                "filters": [
+            _name: name,
+            _id: hashUtil.generate(),
+            _parent: itemID,
+            _props: {
+                filters: [
                     {
-                        "Filter": [...inFilt],
-                        "ExcludedFilter": [...exFilt]
+                        Filter: [...inFilt],
+                        ExcludedFilter: [...exFilt]
                     }
                 ],
-                "cellsH": cellH,
-                "cellsV": cellV,
-                "minCount": 0,
-                "maxCount": 0,
-                "maxWeight": 0,
-                "isSortingTable": false
+                cellsH: cellH,
+                cellsV: cellV,
+                minCount: 0,
+                maxCount: 0,
+                maxWeight: 0,
+                isSortingTable: false
             }
         };
     }
@@ -412,20 +438,69 @@ class Mod implements IPostAkiLoadMod, IPostDBLoadMod, IPreAkiLoadMod {
     generateSlotColumn(container: DependencyContainer, itemID, name, configSlot) {
         const hashUtil = container.resolve<HashUtil>("HashUtil")
         return {
-            "_name": name,
-            "_id": hashUtil.generate(),
-            "_parent": itemID,
-            "_props": {
-                "filters": [
+            _name: name,
+            _id: hashUtil.generate(),
+            _parent: itemID,
+            _props: {
+                filters: [
                     {
-                        "Filter": [configSlot],
-                        "ExcludedFilter": [""]
+                        Filter: [configSlot],
+                        ExcludedFilter: [""]
                     }
                 ],
-                "_required": false,
-                "_mergeSlotWithChildren": false
+                _required: false,
+                _mergeSlotWithChildren: false
             }
         };
+    }
+
+    // Look for any key cases in the user's inventory, and properly update the child key locations if we've moved them
+    fixProfile(sessionId: string) {
+        const databaseServer = this.container.resolve<DatabaseServer>("DatabaseServer");
+        const dbTables = databaseServer.getTables();
+        const dbItems = dbTables.templates.items;
+
+        const pmcProfile = this.profileHelper.getFullProfile(sessionId).characters.pmc;
+
+        // Backup the PMC inventory
+        const pmcInventory = structuredClone(pmcProfile.Inventory.items);
+
+        for (const configName of this.caseConfigNames)
+        {
+            // Skip cases that aren't set slots
+            const caseConfig = config[configName];
+            if (caseConfig.case_type !== "slots") continue;
+
+            // Get the template for the case
+            const caseTemplate = dbItems[caseConfig.id];
+
+            // Try to find the case in the user's profile
+            const inventoryCases = pmcProfile.Inventory.items.filter(x => x._tpl === caseConfig.id);
+
+            for (const inventoryCase of inventoryCases)
+            {
+                const caseChildren = pmcProfile.Inventory.items.filter(x => x.parentId === inventoryCase._id);
+
+                for (const child of caseChildren)
+                {
+                    const newSlot = caseTemplate._props?.Slots?.find(x => x._props?.filters[0]?.Filter[0] === child._tpl);
+
+                    // If we couldn't find a new slot for this key, something has gone horribly wrong, restore the inventory and exit
+                    if (!newSlot)
+                    {
+                        this.logger.error(`[${this.modName}] : ERROR: Unable to find new slot for ${child._tpl}. Restoring inventory and exiting`);
+                        pmcProfile.Inventory.items = pmcInventory;
+                        return;
+                    }
+
+                    if (newSlot._name !== child.slotId)
+                    {
+                        this.logger.debug(`[${this.modName}] : Need to move ${child.slotId} to ${newSlot._name}`);
+                        child.slotId = newSlot._name;
+                    }
+                }
+            }
+        }
     }
 }
 

@@ -1,12 +1,12 @@
 /* eslint-disable @typescript-eslint/brace-style */
 import * as config from "../config/config.json";
 
-import { ILogger } from "@spt-aki/models/spt/utils/ILogger";
+import type { ILogger } from "@spt-aki/models/spt/utils/ILogger";
 import { LogTextColor } from "@spt-aki/models/spt/logging/LogTextColor";
-import { ITemplateItem } from "@spt-aki/models/eft/common/tables/ITemplateItem";
+import type { ITemplateItem } from "@spt-aki/models/eft/common/tables/ITemplateItem";
 import { BaseClasses } from "@spt-aki/models/enums/BaseClasses";
-import { StaticRouterModService } from "@spt-aki/services/mod/staticRouter/StaticRouterModService";
-import { SaveServer } from "@spt-aki/servers/SaveServer";
+import type { StaticRouterModService } from "@spt-aki/services/mod/staticRouter/StaticRouterModService";
+import type { SaveServer } from "@spt-aki/servers/SaveServer";
 
 const debugConfig = config.debug
 const keysInConfig:Array<string> = [
@@ -43,9 +43,9 @@ export class Debug{
     isKeyMissing(keyId:string):boolean{
         if (keysInConfig.includes(keyId)){
             return false
-        } else {
-            return true
         }
+        
+        return true
     }
 
     giveProfileAllKeysAndGildedCases(staticRouterModService:StaticRouterModService, saveServer: SaveServer, logger:ILogger):void{
@@ -82,15 +82,15 @@ export class Debug{
 
                         profileInventory.items.push(
                             {
-                                "_id": `${thisItemId}_gilded_debug_id`,
-                                "_tpl": thisItemId,
-                                "parentId": profileInventory.stash,
-                                "slotId": "hideout",
-                                "location": {
-                                    "x": xVal,
-                                    "y": yVal,
-                                    "r": "Horizontal",
-                                    "isSearched": true
+                                _id: `${thisItemId}_gilded_debug_id`,
+                                _tpl: thisItemId,
+                                parentId: profileInventory.stash,
+                                slotId: "hideout",
+                                location: {
+                                    x: xVal,
+                                    y: yVal,
+                                    r: "Horizontal",
+                                    isSearched: true
                                 }
                             }
                         )
