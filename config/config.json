@@ -2,6 +2,7 @@
     "weightless_keys": true,
     "no_key_use_limit": true,
     "keys_are_discardable": true,
+    "all_keys_in_secure": true,
 
     "Additional Barter Trades": {
         "Keytool Barter for Keychain": {

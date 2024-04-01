@@ -7,6 +7,7 @@ import type { SaveServer } from "@spt-aki/servers/SaveServer";
 import type { IPostAkiLoadMod } from "@spt-aki/models/external/IPostAkiLoadMod";
 import type { IPostDBLoadMod } from "@spt-aki/models/external/IPostDBLoadMod";
 import type { IPreAkiLoadMod } from "@spt-aki/models/external/IPreAkiLoadMod";
+import type { ItemHelper } from "@spt-aki/helpers/ItemHelper";
 import type { HashUtil } from "@spt-aki/utils/HashUtil";
 import type { JsonUtil } from "@spt-aki/utils/JsonUtil";
 import type { DatabaseServer } from "@spt-aki/servers/DatabaseServer";
@@ -33,6 +34,7 @@ class Mod implements IPostAkiLoadMod, IPostDBLoadMod, IPreAkiLoadMod {
     modVersion: string
     container: DependencyContainer;
     profileHelper: ProfileHelper;
+    itemHelper: ItemHelper;
 
     constructor() {
         this.modName = "Gilded Key Storage";
@@ -48,6 +50,7 @@ class Mod implements IPostAkiLoadMod, IPostDBLoadMod, IPreAkiLoadMod {
         const saveServer = container.resolve<SaveServer>("SaveServer")
         const logger = container.resolve<ILogger>("WinstonLogger")
         this.profileHelper = container.resolve<ProfileHelper>("ProfileHelper");
+        this.itemHelper = container.resolve<ItemHelper>("ItemHelper");
 
         // On game start, see if we need to move any keys to the correct slot (Handles updating keys between Tarkov versions)
         staticRouterModService.registerStaticRouter(
@@ -88,7 +91,7 @@ class Mod implements IPostAkiLoadMod, IPostDBLoadMod, IPreAkiLoadMod {
         }
 
         this.pushSupportiveBarters(dbTraders)
-        this.makeKeysWeightlessCommaDiscardableAndHaveNoUseLimit(dbItems)
+        this.adjustItemProperties(dbItems)
         this.setLabsCardInRaidLimit(restrInRaid, 9)
 
         debugUtil.logMissingKeys(this.logger, dbItems, dbLocales)
@@ -116,12 +119,18 @@ class Mod implements IPostAkiLoadMod, IPostDBLoadMod, IPreAkiLoadMod {
         }
     }
 
-    makeKeysWeightlessCommaDiscardableAndHaveNoUseLimit(dbItems){
-        if (!config.weightless_keys && !config.no_key_use_limit && !config.keys_are_discardable) return
+    adjustItemProperties(dbItems){
         for (const it in dbItems){
+            // Skip anything that isn't specifically an Item type item
+            if (dbItems[it]._type !== "Item")
+            {
+                continue;
+            }
+
             const itemProps = dbItems[it]._props
 
-            if (dbItems[it]._parent === BaseClasses.KEY_MECHANICAL || dbItems[it]._parent ===  BaseClasses.KEYCARD){
+            // Adjust key specific properties
+            if (this.itemHelper.isOfBaseclass(dbItems[it]._id, BaseClasses.KEY)){
 
                 if (config.weightless_keys){
                     itemProps.Weight = 0.0;
@@ -137,6 +146,19 @@ class Mod implements IPostAkiLoadMod, IPostDBLoadMod, IPreAkiLoadMod {
                 
                 if (config.keys_are_discardable){
                     itemProps.DiscardLimit = -1
+                }
+            }
+
+            // Remove keys from secure container exclude filter
+            if (config.all_keys_in_secure && this.itemHelper.isOfBaseclass(dbItems[it]._id, BaseClasses.MOB_CONTAINER))
+            {
+                const filter = itemProps?.Grids[0]?._props?.filters[0];
+                if (filter)
+                {
+                    // Exclude items with a base class of KEY. Have to check that it's an "Item" type first because isOfBaseClass only accepts Items
+                    filter.ExcludedFilter = filter.ExcludedFilter.filter(
+                        itemTpl => this.itemHelper.getItem(itemTpl)[1]._type !== "Item" || !this.itemHelper.isOfBaseclass(itemTpl, BaseClasses.KEY)
+                    );
                 }
             }
         }
