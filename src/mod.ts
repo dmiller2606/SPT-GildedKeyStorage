@@ -127,8 +127,11 @@ class Mod implements IPostAkiLoadMod, IPostDBLoadMod, IPreAkiLoadMod {
                     itemProps.Weight = 0.0;
                 }
 
-                //this sets labs key uses to infinite, but they still are consumed when leaving labs so the affect is only cosmetic
-                if (config.no_key_use_limit && !config.finiteKeysList.includes(dbItems[it]._id)){
+                // If keys are to be set to no limit, and we're either not using the finite keys list, or this key doesn't exist
+                // in it, set the key max usage to 0 (infinite)
+                if (config.no_key_use_limit && 
+                    (!config.use_finite_keys_list || !config.finite_keys_list.includes(dbItems[it]._id)))
+                {
                     itemProps.MaximumNumberOfUsage = 0;
                 }
                 
