@@ -465,6 +465,9 @@ class Mod implements IPostAkiLoadMod, IPostDBLoadMod, IPreAkiLoadMod {
 
         const pmcProfile = this.profileHelper.getFullProfile(sessionId).characters.pmc;
 
+        // Do nothing if the profile isn't initialized
+        if (!pmcProfile?.Inventory?.items) return;
+
         // Backup the PMC inventory
         const pmcInventory = structuredClone(pmcProfile.Inventory.items);
 
