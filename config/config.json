@@ -3,6 +3,17 @@
     "no_key_use_limit": true,
     "keys_are_discardable": true,
     "all_keys_in_secure": true,
+    "use_finite_keys_list": false,
+    "finite_keys_list":[
+      "5c94bbff86f7747ee735c08f",
+      "62987dfc402c7f69bf010923",
+      "5780cf7f2459777de4559322",
+      "5d80c60f86f77440373c4ece",
+      "5d80c62a86f7744036212b3f",
+      "5ede7a8229445733cb4c18e2",
+      "63a3a93f8a56922e82001f5d",
+      "64ccc25f95763a1ae376e447"
+    ],
 
     "Additional Barter Trades": {
         "Keytool Barter for Keychain": {
@@ -349,8 +360,7 @@
             "5a0eedb386f77403506300be",
             "5a0f006986f7741ffd2fe484",
             "5a0f045e86f7745b0f0d0e42",
-            "5a13ee1986f774794d4c14cd",
-            "5a0448bc86f774736f14efa8"
+            "5a13ee1986f774794d4c14cd"
         ]
     },
 
@@ -416,6 +426,9 @@
             "64ccc24de61ea448b507d34d",            "64d4b23dc1b37504b41ac2b6",
             "64ccc268c41e91416064ebc7",            "64ce572331dd890873175115",
             "64ccc25f95763a1ae376e447",
+
+            "6582dbf0b8d7830efc45016f",            "6582dbe43a2e5248357dbe9a",
+            "6582dc5740562727a654ebb1",            "6582dc4b6ba9e979af6b79f4",
 
             "5d80c60f86f77440373c4ece",            "5d80c62a86f7744036212b3f",
             "5d80c66d86f774405611c7d6",            "5d80c6c586f77440351beef1",
@@ -500,17 +513,6 @@
             "5c94bbff86f7747ee735c08f"
         ]
     },
-    "use_finite_keys_list": false,
-    "finite_keys_list":[
-      "5c94bbff86f7747ee735c08f",
-      "62987dfc402c7f69bf010923",
-      "5780cf7f2459777de4559322",
-      "5d80c60f86f77440373c4ece",
-      "5d80c62a86f7744036212b3f",
-      "5ede7a8229445733cb4c18e2",
-      "63a3a93f8a56922e82001f5d",
-      "64ccc25f95763a1ae376e447"
-    ],
     "debug": {
         "log_missing_keys": false,
         "give_profile_all_keys": false,

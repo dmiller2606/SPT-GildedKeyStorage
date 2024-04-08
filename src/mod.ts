@@ -9,7 +9,6 @@ import type { IPostDBLoadMod } from "@spt-aki/models/external/IPostDBLoadMod";
 import type { IPreAkiLoadMod } from "@spt-aki/models/external/IPreAkiLoadMod";
 import type { ItemHelper } from "@spt-aki/helpers/ItemHelper";
 import type { HashUtil } from "@spt-aki/utils/HashUtil";
-import type { JsonUtil } from "@spt-aki/utils/JsonUtil";
 import type { DatabaseServer } from "@spt-aki/servers/DatabaseServer";
 import type { ILogger } from "@spt-aki/models/spt/utils/ILogger";
 import { BaseClasses } from "@spt-aki/models/enums/BaseClasses";
@@ -19,6 +18,7 @@ import { Debug } from "./debug";
 
 import * as config from "../config/config.json";
 import type { ITrader } from "@spt-aki/models/eft/common/tables/ITrader";
+import type { ITemplateItem } from "@spt-aki/models/eft/common/tables/ITemplateItem";
 
 class Mod implements IPostAkiLoadMod, IPostDBLoadMod, IPreAkiLoadMod {
     caseConfigNames = [
@@ -74,7 +74,6 @@ class Mod implements IPostAkiLoadMod, IPostDBLoadMod, IPreAkiLoadMod {
         this.logger = container.resolve<ILogger>("WinstonLogger");
         this.logger.log(`[${this.modName}] : Mod loading`, LogTextColor.GREEN);
         const debugUtil = new Debug()
-        const jsonUtil = container.resolve<JsonUtil>("JsonUtil");
         const databaseServer = container.resolve<DatabaseServer>("DatabaseServer");
         const dbTables = databaseServer.getTables();
         const restrInRaid = dbTables.globals.config.RestrictionsInRaid;
@@ -87,14 +86,14 @@ class Mod implements IPostAkiLoadMod, IPostDBLoadMod, IPreAkiLoadMod {
 
         for (const configName of this.caseConfigNames)
         {
-            this.createCase(container, config[configName], dbTables, jsonUtil);
+            this.createCase(container, config[configName], dbTables);
         }
 
         this.pushSupportiveBarters(dbTraders)
         this.adjustItemProperties(dbItems)
         this.setLabsCardInRaidLimit(restrInRaid, 9)
 
-        debugUtil.logMissingKeys(this.logger, dbItems, dbLocales)
+        debugUtil.logMissingKeys(this.logger, this.itemHelper, dbItems, dbLocales)
     }
 
     pushSupportiveBarters(dbTraders: Record<string, ITrader>):void{
@@ -119,18 +118,18 @@ class Mod implements IPostAkiLoadMod, IPostDBLoadMod, IPreAkiLoadMod {
         }
     }
 
-    adjustItemProperties(dbItems){
-        for (const it in dbItems){
+    adjustItemProperties(dbItems: Record<string, ITemplateItem>){
+        for (const [_, item] of Object.entries(dbItems)){
             // Skip anything that isn't specifically an Item type item
-            if (dbItems[it]._type !== "Item")
+            if (item._type !== "Item")
             {
                 continue;
             }
 
-            const itemProps = dbItems[it]._props
+            const itemProps = item._props
 
             // Adjust key specific properties
-            if (this.itemHelper.isOfBaseclass(dbItems[it]._id, BaseClasses.KEY)){
+            if (this.itemHelper.isOfBaseclass(item._id, BaseClasses.KEY)){
 
                 if (config.weightless_keys){
                     itemProps.Weight = 0.0;
@@ -139,7 +138,7 @@ class Mod implements IPostAkiLoadMod, IPostDBLoadMod, IPreAkiLoadMod {
                 // If keys are to be set to no limit, and we're either not using the finite keys list, or this key doesn't exist
                 // in it, set the key max usage to 0 (infinite)
                 if (config.no_key_use_limit && 
-                    (!config.use_finite_keys_list || !config.finite_keys_list.includes(dbItems[it]._id)))
+                    (!config.use_finite_keys_list || !config.finite_keys_list.includes(item._id)))
                 {
                     itemProps.MaximumNumberOfUsage = 0;
                 }
@@ -150,7 +149,7 @@ class Mod implements IPostAkiLoadMod, IPostDBLoadMod, IPreAkiLoadMod {
             }
 
             // Remove keys from secure container exclude filter
-            if (config.all_keys_in_secure && this.itemHelper.isOfBaseclass(dbItems[it]._id, BaseClasses.MOB_CONTAINER))
+            if (config.all_keys_in_secure && this.itemHelper.isOfBaseclass(item._id, BaseClasses.MOB_CONTAINER))
             {
                 const filter = itemProps?.Grids[0]?._props?.filters[0];
                 if (filter)
@@ -164,25 +163,28 @@ class Mod implements IPostAkiLoadMod, IPostDBLoadMod, IPreAkiLoadMod {
         }
     }
 
-    combatibilityThings(dbItems):void{
+    combatibilityThings(dbItems: Record<string, ITemplateItem>):void{
         //do a compatibility correction to make this mod work with other mods with destructive code (cough, SVM, cough)
         //basically just add the filters element back to backpacks and secure containers if they've been removed by other mods
-        const compatFiltersElement = [{ Filter: [BaseClasses.ITEM], ExcludedFilter: [""] }];
+        const compatFiltersElement = [{ Filter: [BaseClasses.ITEM], ExcludedFilter: [] }];
 
-        for (const i in dbItems){
+        for (const [_, item] of Object.entries(dbItems)){
+            // Skip non-items
+            if (item._type !== "Item") continue;
+
             if (
-                dbItems[i]._parent === BaseClasses.BACKPACK ||
-                dbItems[i]._parent === BaseClasses.VEST ||
-                (dbItems[i]._parent === "5448bf274bdc2dfc2f8b456a"  /*Mob Container ID*/  && i !== "5c0a794586f77461c458f892")
+                item._parent === BaseClasses.BACKPACK ||
+                item._parent === BaseClasses.VEST ||
+                (this.itemHelper.isOfBaseclass(item._id, BaseClasses.MOB_CONTAINER) && item._id !== "5c0a794586f77461c458f892")
             ) {
-                if (dbItems[i]._props.Grids[0]._props.filters[0] === undefined){
-                    dbItems[i]._props.Grids[0]._props.filters = compatFiltersElement;
+                if (item._props.Grids[0]._props.filters[0] === undefined){
+                    item._props.Grids[0]._props.filters = structuredClone(compatFiltersElement);
                 }
             }
         }
     }
 
-    createCase(container, config, tables, jsonUtil){
+    createCase(container, config, tables){
         const handbook = tables.templates.handbook;
         const locales = Object.values(tables.locales.global) as Record<string, string>[];
         const itemID = config.id
@@ -192,13 +194,13 @@ class Mod implements IPostAkiLoadMod, IPostDBLoadMod, IPreAkiLoadMod {
 
         //clone a case
         if (config.case_type === "container"){
-            item = jsonUtil.clone(tables.templates.items["5d235bb686f77443f4331278"]);
+            item = structuredClone(tables.templates.items["5d235bb686f77443f4331278"]);
             item._props.IsAlwaysAvailableForInsurance = true;
             item._props.DiscardLimit = -1;
         }
 
         if (config.case_type === "slots"){
-            item = jsonUtil.clone(tables.templates.items["5a9d6d00a2750c5c985b5305"]);
+            item = structuredClone(tables.templates.items["5a9d6d00a2750c5c985b5305"]);
             item._props.IsAlwaysAvailableForInsurance = true;
             item._props.DiscardLimit = -1;
             item._props.ItemSound = config.sound;
@@ -228,11 +230,8 @@ class Mod implements IPostAkiLoadMod, IPostDBLoadMod, IPreAkiLoadMod {
             locale[`${itemID} Description`] = config.item_description;
         }
 
-        let price = config.flea_price
-
-        if (config.flea_banned){
-            price = 0
-        }
+        item._props.CanSellOnRagfair = !config.flea_banned;
+        const price = config.flea_price
 
         handbook.Items.push(
             {
@@ -311,31 +310,33 @@ class Mod implements IPostAkiLoadMod, IPostDBLoadMod, IPreAkiLoadMod {
         trader.assort.loyal_level_items[itemID] = config.trader_loyalty_level;
     }
 
-    allowIntoContainers(itemID, items, secContainers, backpacks, addAllowedIn, addDisallowedIn): void {
-        for (const item in items){
+    allowIntoContainers(itemID, items: Record<string, ITemplateItem>, secContainers, backpacks, addAllowedIn, addDisallowedIn): void {
+        for (const [_, item] of Object.entries(items)){
+            // Skip non-items
+            if (item._type !== "Item") continue;
             
             //disallow in backpacks
-            if (backpacks === false){
-                this.allowOrDisallowIntoCaseByParent(itemID, "exclude", items[item], BaseClasses.BACKPACK);
+            if (!backpacks){
+                this.allowOrDisallowIntoCaseByParent(itemID, "exclude", item, BaseClasses.BACKPACK);
             }
 
             //allow in secure containers
             if (secContainers){
-                this.allowOrDisallowIntoCaseByParent(itemID, "include", items[item], "5448bf274bdc2dfc2f8b456a");
+                this.allowOrDisallowIntoCaseByParent(itemID, "include", item, BaseClasses.MOB_CONTAINER);
             }
 
             //disallow in additional specific items
             for (const configItem in addDisallowedIn){
-                if (addDisallowedIn[configItem] === items[item]._id){
-                    this.allowOrDisallowIntoCaseByID(itemID, "exclude", items[item]);
+                if (addDisallowedIn[configItem] === item._id){
+                    this.allowOrDisallowIntoCaseByID(itemID, "exclude", item);
                 }
 
             }
 
             //allow in additional specific items
             for (const configItem in addAllowedIn){
-                if (addAllowedIn[configItem] === items[item]._id){
-                    this.allowOrDisallowIntoCaseByID(itemID, "include", items[item]);
+                if (addAllowedIn[configItem] === item._id){
+                    this.allowOrDisallowIntoCaseByID(itemID, "include", item);
                 }
             }
         }
@@ -347,11 +348,10 @@ class Mod implements IPostAkiLoadMod, IPostDBLoadMod, IPreAkiLoadMod {
         if (includeOrExclude === "exclude"){
             for (const gridKey in currentItem._props.Grids){
                 if (currentItem._parent === caseParent && currentItem._id !== "5c0a794586f77461c458f892"){
-                    if (currentItem._props.Grids[0]._props.filters[0].ExcludedFilter === undefined){
-                        currentItem._props.Grids[0]._props.filters[0].ExcludedFilter = [customItemID];
+                    if (currentItem._props.Grids[gridKey]._props.filters[0].ExcludedFilter === undefined){
+                        currentItem._props.Grids[gridKey]._props.filters[0].ExcludedFilter = [customItemID];
                     } else {                 
                         currentItem._props.Grids[gridKey]._props.filters[0].ExcludedFilter.push(customItemID)
-
                     }
                 }
             }
@@ -470,7 +470,7 @@ class Mod implements IPostAkiLoadMod, IPostDBLoadMod, IPreAkiLoadMod {
                 filters: [
                     {
                         Filter: [configSlot],
-                        ExcludedFilter: [""]
+                        ExcludedFilter: []
                     }
                 ],
                 _required: false,

@@ -7,6 +7,7 @@ import type { ITemplateItem } from "@spt-aki/models/eft/common/tables/ITemplateI
 import { BaseClasses } from "@spt-aki/models/enums/BaseClasses";
 import type { StaticRouterModService } from "@spt-aki/services/mod/staticRouter/StaticRouterModService";
 import type { SaveServer } from "@spt-aki/servers/SaveServer";
+import type { ItemHelper } from "@spt-aki/helpers/ItemHelper";
 
 const debugConfig = config.debug
 const keysInConfig:Array<string> = [
@@ -17,9 +18,7 @@ const keysInConfig:Array<string> = [
 ]
 
 export class Debug{
-
-
-    logMissingKeys(logger:ILogger, dbItems:Record<string, ITemplateItem>, dbLocales: Record<string, string>):void{
+    logMissingKeys(logger:ILogger, itemHelper:ItemHelper, dbItems:Record<string, ITemplateItem>, dbLocales: Record<string, string>):void{
         if (!debugConfig.log_missing_keys) return
 
         logger.log("[Gilded Key Storage]: Keys missing from config: ", LogTextColor.MAGENTA)
@@ -28,8 +27,14 @@ export class Debug{
         for (const itemID in dbItems){
             const thisItem = dbItems[itemID]
 
-            if (thisItem._parent !== BaseClasses.KEY_MECHANICAL && thisItem._parent !== BaseClasses.KEYCARD) continue
+            // Skip items that aren't items
+            if (thisItem._type !== "Item") continue;
 
+            // Skip non-keys
+            if (!itemHelper.isOfBaseclass(thisItem._id, BaseClasses.KEY)) continue;
+
+            // Skip quest keys
+            if (thisItem._props.QuestItem) continue;
 
             if (this.isKeyMissing(itemID)){
 
