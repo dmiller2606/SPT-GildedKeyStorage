@@ -135,6 +135,8 @@ class Mod implements IPostAkiLoadMod, IPostDBLoadMod, IPreAkiLoadMod {
                     itemProps.Weight = 0.0;
                 }
 
+                itemProps.InsuranceDisabled = !config.key_insurance_enabled;
+
                 // If keys are to be set to no limit, and we're either not using the finite keys list, or this key doesn't exist
                 // in it, set the key max usage to 0 (infinite)
                 if (config.no_key_use_limit && 
@@ -231,6 +233,7 @@ class Mod implements IPostAkiLoadMod, IPostDBLoadMod, IPreAkiLoadMod {
         }
 
         item._props.CanSellOnRagfair = !config.flea_banned;
+        item._props.InsuranceDisabled = !config.insurance_enabled;
         const price = config.flea_price
 
         handbook.Items.push(
