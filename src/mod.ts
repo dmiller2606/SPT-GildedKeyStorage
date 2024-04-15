@@ -13,6 +13,8 @@ import type { DatabaseServer } from "@spt-aki/servers/DatabaseServer";
 import type { ILogger } from "@spt-aki/models/spt/utils/ILogger";
 import { BaseClasses } from "@spt-aki/models/enums/BaseClasses";
 import { LogTextColor } from "@spt-aki/models/spt/logging/LogTextColor";
+import type { GameController } from "@spt-aki/controllers/GameController";
+import type { IEmptyRequestData } from "@spt-aki/models/eft/common/IEmptyRequestData";
 //import { LogBackgroundColor } from "@spt-aki/models/spt/logging/LogBackgroundColor";
 import { Debug } from "./debug";
 
@@ -28,6 +30,14 @@ class Mod implements IPostAkiLoadMod, IPostDBLoadMod, IPreAkiLoadMod {
         "Golden Keychain Mk. III",
         "Golden Keycard Case"
     ];
+
+    newIdMap = {
+        Golden_Key_Pouch: "661cb36922c9e10dc2d9514b",
+        Golden_Keycard_Case: "661cb36f5441dc730e28bcb0",
+        Golden_Keychain1: "661cb372e5eb56290da76c3e",
+        Golden_Keychain2: "661cb3743bf00d3d145518b3",
+        Golden_Keychain3: "661cb376b16226f648eb0cdc"
+    };
 
     logger: ILogger
     modName: string
@@ -52,17 +62,22 @@ class Mod implements IPostAkiLoadMod, IPostDBLoadMod, IPreAkiLoadMod {
         this.profileHelper = container.resolve<ProfileHelper>("ProfileHelper");
         this.itemHelper = container.resolve<ItemHelper>("ItemHelper");
 
-        // On game start, see if we need to move any keys to the correct slot (Handles updating keys between Tarkov versions)
-        staticRouterModService.registerStaticRouter(
-            "On_Game_Start_Gilded_Key_Storage", [{
-                url: "/client/game/start",
-                action: (url, info, sessionId, output) => {
-                    this.fixProfile(sessionId);
-                    return output
+        // On game start, see if we need to fix issues from previous versions
+        // Note: We do this as a method replacement so we can run _before_ SPT's gameStart
+        container.afterResolution("GameController", (_, result: GameController) => {
+            const originalGameStart = result.gameStart;
+
+            result.gameStart = (url: string, info: IEmptyRequestData, sessionID: string, startTimeStampMS: number) => {
+                // If there's a profile ID passed in, call our fixer method
+                if (sessionID)
+                {
+                    this.fixProfile(sessionID);
                 }
-            }],
-            "aki"
-        );
+
+                // Call the original
+                originalGameStart.apply(result, [url, info, sessionID, startTimeStampMS]);
+            }
+        });
 
         // Setup debugging if enabled
         const debugUtil = new Debug()
@@ -191,6 +206,7 @@ class Mod implements IPostAkiLoadMod, IPostDBLoadMod, IPreAkiLoadMod {
         const locales = Object.values(tables.locales.global) as Record<string, string>[];
         const itemID = config.id
         const itemPrefabPath = `CaseBundles/${itemID}.bundle`
+        const templateId = this.newIdMap[itemID];
         // biome-ignore lint/suspicious/noExplicitAny: <explanation>
         let item: any;
 
@@ -208,28 +224,28 @@ class Mod implements IPostAkiLoadMod, IPostDBLoadMod, IPreAkiLoadMod {
             item._props.ItemSound = config.sound;
         }
 
-        item._id = itemID;
+        item._id = templateId;
         item._props.Prefab.path = itemPrefabPath;
 
         //call methods to set the grid or slot cells up
         if (config.case_type === "container"){
-            item._props.Grids = this.createGrid(container, itemID, config);
+            item._props.Grids = this.createGrid(container, templateId, config);
         }
         if (config.case_type === "slots"){
-            item._props.Slots = this.createSlot(container, itemID, config);
+            item._props.Slots = this.createSlot(container, templateId, config);
         }
         
         //set external size of the container:
         item._props.Width = config.ExternalSize.width;
         item._props.Height = config.ExternalSize.height;
 
-        tables.templates.items[itemID] = item;
+        tables.templates.items[templateId] = item;
         
         //add locales
         for (const locale of locales) {
-            locale[`${itemID} Name`] = config.item_name;
-            locale[`${itemID} ShortName`] = config.item_short_name;
-            locale[`${itemID} Description`] = config.item_description;
+            locale[`${templateId} Name`] = config.item_name;
+            locale[`${templateId} ShortName`] = config.item_short_name;
+            locale[`${templateId} Description`] = config.item_description;
         }
 
         item._props.CanSellOnRagfair = !config.flea_banned;
@@ -238,7 +254,7 @@ class Mod implements IPostAkiLoadMod, IPostDBLoadMod, IPreAkiLoadMod {
 
         handbook.Items.push(
             {
-                Id: itemID,
+                Id: templateId,
                 ParentId: "5b5f6fa186f77409407a7eb7",
                 Price: price
             }
@@ -246,7 +262,7 @@ class Mod implements IPostAkiLoadMod, IPostDBLoadMod, IPreAkiLoadMod {
 
         //allow or disallow in secure containers, backpacks, other specific items per the config
         this.allowIntoContainers(
-            itemID,
+            templateId,
             tables.templates.items,
             config.allow_in_secure_containers,
             config.allow_in_backpacks,
@@ -254,7 +270,7 @@ class Mod implements IPostAkiLoadMod, IPostDBLoadMod, IPreAkiLoadMod {
             config.case_disallowed_in
         );
 
-        this.pushToTrader(config, itemID, tables.traders);
+        this.pushToTrader(config, templateId, tables.traders);
 
         //log success!
         this.logger.log(`[${this.modName}] : ${config.item_name} loaded! Hooray!`, LogTextColor.GREEN);
@@ -397,11 +413,11 @@ class Mod implements IPostAkiLoadMod, IPostDBLoadMod, IPreAkiLoadMod {
         const grids = [];
         let cellHeight = config.InternalSize.vertical_cells;
         let cellWidth = config.InternalSize.horizontal_cells;
-        const inFilt = config.included_filter;
-        const exFilt = config.excluded_filter;
+        const inFilt = this.replaceOldIdWithNewId(config.included_filter);
+        const exFilt = this.replaceOldIdWithNewId(config.excluded_filter);
         const UCcellToApply = config.cell_to_apply_filters_to;
-        const UCinFilt = config.unique_included_filter;
-        const UCexFilt = config.unique_excluded_filter;
+        const UCinFilt = this.replaceOldIdWithNewId(config.unique_included_filter);
+        const UCexFilt = this.replaceOldIdWithNewId(config.unique_excluded_filter);
 
         //if inFilt is empty set it to the base item id so the case will accept all items
         if (inFilt.length === 1 && inFilt[0] === ""){
@@ -428,6 +444,20 @@ class Mod implements IPostAkiLoadMod, IPostDBLoadMod, IPreAkiLoadMod {
             }
         }
         return grids;
+    }
+
+    replaceOldIdWithNewId(entries)
+    {
+        const newIdKeys = Object.keys(this.newIdMap);
+        for (let i = 0; i < entries.length; i++)
+        {
+            if (newIdKeys.includes(entries[i]))
+            {
+                entries[i] = this.newIdMap[entries[i]];
+            }
+        }
+
+        return entries;
     }
 
     createSlot(container, itemID, config) {
@@ -482,20 +512,32 @@ class Mod implements IPostAkiLoadMod, IPostDBLoadMod, IPreAkiLoadMod {
         };
     }
 
-    // Look for any key cases in the user's inventory, and properly update the child key locations if we've moved them
+    // Handle updating the user profile between versions:
+    // - Update the container IDs to the new MongoID format
+    // - Look for any key cases in the user's inventory, and properly update the child key locations if we've moved them
     fixProfile(sessionId: string) {
         const databaseServer = this.container.resolve<DatabaseServer>("DatabaseServer");
         const dbTables = databaseServer.getTables();
         const dbItems = dbTables.templates.items;
 
-        const pmcProfile = this.profileHelper.getFullProfile(sessionId).characters.pmc;
+        const pmcProfile = this.profileHelper.getFullProfile(sessionId)?.characters?.pmc;
 
         // Do nothing if the profile isn't initialized
         if (!pmcProfile?.Inventory?.items) return;
 
+        // Update the container IDs to the new MongoID format
+        for (const item of pmcProfile.Inventory.items)
+        {
+            if (this.newIdMap[item._tpl])
+            {
+                item._tpl = this.newIdMap[item._tpl];
+            }
+        }
+
         // Backup the PMC inventory
         const pmcInventory = structuredClone(pmcProfile.Inventory.items);
 
+        // Look for any key cases in the user's inventory, and properly update the child key locations if we've moved them
         for (const configName of this.caseConfigNames)
         {
             // Skip cases that aren't set slots
